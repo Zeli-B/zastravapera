@@ -1,9 +1,8 @@
 from asyncio import sleep, TimeoutError as AsyncTimeoutError
+from datetime import datetime, timedelta
 
-from discord import Embed
-from discord.ext.commands import Cog, Bot
-from discord_slash import SlashContext, cog_ext, SlashCommandOptionType
-from discord_slash.utils.manage_commands import create_option
+from discord import app_commands, Interaction, Object, Embed, ui, ButtonStyle
+from discord.ext import commands
 
 from const import get_const
 from database import Database, DialectDatabase, PosDatabase
@@ -34,16 +33,16 @@ databases = {
 guild_ids = get_programwide('guild_ids')
 
 
-async def handle_dictionary(ctx: SlashContext, database: Database, embed: Embed, query: str):
+async def handle_dictionary(interaction: Interaction, database: Database, embed: Embed, query: str):
     """
     Handles the dictionary command.
 
-    :param ctx:
+    :param interaction:
     :param database:
     :param embed:
     :param query: 검색어
     """
-    message = await ctx.send(f'`{query}`에 대해 검색 중입니다…')
+    await interaction.response.send_message(f'`{query}`에 대해 검색 중입니다…')
 
     words, duplicates, reloaded = database.search_rows(query)
     too_many = False
@@ -64,48 +63,28 @@ async def handle_dictionary(ctx: SlashContext, database: Database, embed: Embed,
     if too_many:
         embed.add_field(name='기타', value=f'단어나 뜻에 `{query}`가 들어가는 단어가 {word_count - index_offset} 개 더 있습니다.')
 
-    await message.edit(content='데이터베이스를 다시 불러왔습니다.' if reloaded else '', embed=embed)
+    await interaction.edit_original_message(content='데이터베이스를 다시 불러왔습니다.' if reloaded else '', embed=embed)
 
 
-class DictionaryCog(Cog):
-    def __init__(self, bot: Bot):
+class DictionaryCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @cog_ext.cog_slash(
-        description='자소크어 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=3
-            )
-        ]
-    )
-    async def zasok(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['zasokese'], Embed(
+    @app_commands.command(description='자소크어 단어를 검색합니다.')
+    @app_commands.describe(query='검색할 단어')
+    async def zasok(self, interaction: Interaction, query: str):
+        await handle_dictionary(interaction, databases['zasokese'], Embed(
             title=f'`{query}`의 검색 결과',
             description='자소크어 단어를 검색합니다.',
             color=get_const('shtelo_sch_vanilla')
         ), query)
 
-    @cog_ext.cog_slash(
-        description='자소크어 단어를 만듭니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option('word', '만들 단어', SlashCommandOptionType.STRING, True),
-            create_option('origin_language', '어원 언어', SlashCommandOptionType.STRING, True),
-            create_option('origin_word', '어원', SlashCommandOptionType.STRING, False),
-            create_option('noun', '명사 의미', SlashCommandOptionType.STRING, False),
-            create_option('adjective', '형용사 의미', SlashCommandOptionType.STRING, False),
-            create_option('verb', '동사 의미', SlashCommandOptionType.STRING, False),
-            create_option('adverb', '부사 의미', SlashCommandOptionType.STRING, False),
-            create_option('postposition', '조사 의미', SlashCommandOptionType.STRING, False),
-            create_option('note', '비고', SlashCommandOptionType.STRING, False),
-        ]
+    @app_commands.command(description='자소크어 단어를 만듭니다.')
+    @app_commands.describe(
+        word='만들 단어', origin_language='어원 언어', origin_word='어원', noun='명사 의미', adjective='형용사 의미',
+        verb='동사 의미', adverb='부사 의미', postposition='조사 의미', note='비고'
     )
-    async def zasok_create(self, ctx: SlashContext, word: str = '', origin_language: str = '', origin_word: str = '',
+    async def zasok_create(self, interaction: Interaction, word: str = '', origin_language: str = '', origin_word: str = '',
                            noun: str = '', adjective: str = '', verb: str = '', adverb: str = '',
                            postposition: str = '', note: str = ''):
         embed = Embed(title=f'자소크어 `{word}` 단어 추가', description='자소크어 단어를 추가합니다.',
@@ -128,242 +107,238 @@ class DictionaryCog(Cog):
         if origin_word:
             embed.add_field(name='어원', value=origin_word)
 
-        confirm = await ctx.send('추가하시겠습니까? (10초동안 대기)', embed=embed)
-        await confirm.add_reaction('✅')
+        button = ui.Button(style=ButtonStyle.gray, label='추가하기')
+        now = datetime.now()
 
-        def check(reaction, user):
-            return user == ctx.author and str(reaction.emoji) == '✅'
-        try:
-            await self.bot.wait_for('reaction_add', timeout=10, check=check)
-        except AsyncTimeoutError:
-            await confirm.remove_reaction('✅', self.bot.user)
-            await confirm.edit(content='추가를 취소했습니다.')
-            return
-
-        databases['zasokese'] \
-            .add_row([word, noun, adjective, verb, adverb, postposition, note, origin_language, origin_word])
-        await confirm.edit(content='단어를 추가했습니다.')
-
-    @cog_ext.cog_slash(
-        description='트라벨레메 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=3
-            )
-        ]
-    )
-    async def th(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['thravelemeh'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='트라벨레메 단어를 검색합니다.',
-            color=get_const('hemelvaarht_hx_nerhgh')
-        ), query)
-
-    @cog_ext.cog_slash(
-        description='베르쿠암 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=3
-            )
-        ]
-    )
-    async def berquam(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['berquam'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='베르쿠암 단어를 검색합니다.',
-            color=get_const('berquam_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        description='시메타시스 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=3
-            )
-        ]
-    )
-    async def sts(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['simetasispika'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='시메타시스어 단어를 검색합니다.',
-            color=get_const('simetasis_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        description='펠라인카이아어 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=3
-            )
-        ]
-    )
-    async def felinkia(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['felinkia'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='펠라인카이아어 단어를 검색합니다.',
-            color=get_const('felinkia_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        name='4351',
-        description='4351 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=3
-            )
-        ]
-    )
-    async def sesame(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['4351'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='4351의 단어를 검색합니다.',
-            color=get_const('4351_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        name='semal',
-        description='새말 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=3
-            )
-        ]
-    )
-    async def semal(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['semal'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='새말 단어를 검색합니다.',
-            color=get_const('semal_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        name='xei',
-        description='헤이어 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=SlashCommandOptionType.STRING
-            )
-        ]
-    )
-    async def xei(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['xei'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='헤이어 단어를 검색합니다.',
-            color=get_const('xei_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        name='iremna',
-        description='이렘나어 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=SlashCommandOptionType.STRING
-            )
-        ]
-    )
-    async def iremna(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['iremna'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='이렘나어 단어를 검색합니다.',
-            color=get_const('iremna_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        description='아르토이트어 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=SlashCommandOptionType.STRING
-            )
-        ]
-    )
-    async def arteut(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['arteut'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='아르토이트어 단어를 검색합니다.',
-            color=get_const('arteut_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        description='연서어 단어를 검색합니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='query',
-                description='검색할 단어',
-                required=True,
-                option_type=SlashCommandOptionType.STRING
-            )
-        ]
-    )
-    async def enjie(self, ctx: SlashContext, query: str):
-        await handle_dictionary(ctx, databases['enjie'], Embed(
-            title=f'`{query}`의 검색 결과',
-            description='연서어 단어를 검색합니다.',
-            color=get_const('enjie_color')
-        ), query)
-
-    @cog_ext.cog_slash(
-        description='데이터베이스를 다시 불러옵니다.',
-        guild_ids=guild_ids,
-        options=[
-            create_option(
-                name='language',
-                description='데이터베이스를 불러올 언어를 설정합니다. 아무것도 입력하지 않으면 모든 언어의 데이터베이스를 다시 불러옵니다.',
-                required=False,
-                option_type=3,
-                choices=list(databases.keys())
-            )
-        ]
-    )
-    async def reload(self, ctx: SlashContext, language: str = ''):
-        message = await ctx.send('데이터베이스를 다시 불러옵니다…')
-        if language:
-            if language in databases:
-                databases[language].reload()
+        async def button_(inter: Interaction):
+            if now - datetime.now() > timedelta(seconds=30):
+                databases['zasokese'] \
+                    .add_row([word, noun, adjective, verb, adverb, postposition, note, origin_language, origin_word])
+                await inter.edit_original_message(content='단어를 추가했습니다.')
             else:
-                await message.edit(content='데이터베이스 이름을 확인해주세요!!')
-        else:
-            for database in databases.values():
-                database.reload()
-                await sleep(0)
-        await message.edit(content=f'{f"`{language}` " if language else ""} 데이터베이스를 다시 불러왔습니다.')
+                await inter.edit_original_message(content='시간이 초과되었습니다.')
+        button.callback = button_
+
+    # @cog_ext.cog_slash(
+    #     description='트라벨레메 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=3
+    #         )
+    #     ]
+    # )
+    # async def th(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['thravelemeh'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='트라벨레메 단어를 검색합니다.',
+    #         color=get_const('hemelvaarht_hx_nerhgh')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     description='베르쿠암 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=3
+    #         )
+    #     ]
+    # )
+    # async def berquam(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['berquam'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='베르쿠암 단어를 검색합니다.',
+    #         color=get_const('berquam_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     description='시메타시스 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=3
+    #         )
+    #     ]
+    # )
+    # async def sts(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['simetasispika'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='시메타시스어 단어를 검색합니다.',
+    #         color=get_const('simetasis_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     description='펠라인카이아어 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=3
+    #         )
+    #     ]
+    # )
+    # async def felinkia(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['felinkia'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='펠라인카이아어 단어를 검색합니다.',
+    #         color=get_const('felinkia_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     name='4351',
+    #     description='4351 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=3
+    #         )
+    #     ]
+    # )
+    # async def sesame(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['4351'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='4351의 단어를 검색합니다.',
+    #         color=get_const('4351_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     name='semal',
+    #     description='새말 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=3
+    #         )
+    #     ]
+    # )
+    # async def semal(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['semal'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='새말 단어를 검색합니다.',
+    #         color=get_const('semal_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     name='xei',
+    #     description='헤이어 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=SlashCommandOptionType.STRING
+    #         )
+    #     ]
+    # )
+    # async def xei(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['xei'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='헤이어 단어를 검색합니다.',
+    #         color=get_const('xei_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     name='iremna',
+    #     description='이렘나어 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=SlashCommandOptionType.STRING
+    #         )
+    #     ]
+    # )
+    # async def iremna(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['iremna'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='이렘나어 단어를 검색합니다.',
+    #         color=get_const('iremna_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     description='아르토이트어 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=SlashCommandOptionType.STRING
+    #         )
+    #     ]
+    # )
+    # async def arteut(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['arteut'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='아르토이트어 단어를 검색합니다.',
+    #         color=get_const('arteut_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     description='연서어 단어를 검색합니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='query',
+    #             description='검색할 단어',
+    #             required=True,
+    #             option_type=SlashCommandOptionType.STRING
+    #         )
+    #     ]
+    # )
+    # async def enjie(self, ctx: Context, query: str):
+    #     await handle_dictionary(ctx, databases['enjie'], Embed(
+    #         title=f'`{query}`의 검색 결과',
+    #         description='연서어 단어를 검색합니다.',
+    #         color=get_const('enjie_color')
+    #     ), query)
+    #
+    # @cog_ext.cog_slash(
+    #     description='데이터베이스를 다시 불러옵니다.',
+    #     guild_ids=guild_ids,
+    #     options=[
+    #         create_option(
+    #             name='language',
+    #             description='데이터베이스를 불러올 언어를 설정합니다. 아무것도 입력하지 않으면 모든 언어의 데이터베이스를 다시 불러옵니다.',
+    #             required=False,
+    #             option_type=3,
+    #             choices=list(databases.keys())
+    #         )
+    #     ]
+    # )
+    # async def reload(self, ctx: Context, language: str = ''):
+    #     message = await ctx.send('데이터베이스를 다시 불러옵니다…')
+    #     if language:
+    #         if language in databases:
+    #             databases[language].reload()
+    #         else:
+    #             await message.edit(content='데이터베이스 이름을 확인해주세요!!')
+    #     else:
+    #         for database in databases.values():
+    #             database.reload()
+    #             await sleep(0)
+    #     await message.edit(content=f'{f"`{language}` " if language else ""} 데이터베이스를 다시 불러왔습니다.')
 
 
-def setup(bot: Bot):
-    bot.add_cog(DictionaryCog(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(DictionaryCog(bot), guilds=[Object(x) for x in guild_ids])
