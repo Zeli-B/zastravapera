@@ -1,8 +1,8 @@
-from asyncio import sleep, TimeoutError as AsyncTimeoutError
 from datetime import datetime, timedelta
 
-from discord import app_commands, Interaction, Object, Embed, ui, ButtonStyle
+from discord import app_commands, Interaction, Embed, ui, ButtonStyle
 from discord.ext import commands
+from discord.ext.commands import Bot
 
 from const import get_const
 from database import Database, DialectDatabase, PosDatabase
@@ -345,6 +345,7 @@ class DictionaryCog(commands.Cog):
     #             database.reload()
     #             await sleep(0)
     #     await message.edit(content=f'{f"`{language}` " if language else ""} 데이터베이스를 다시 불러왔습니다.')
+
 
 def setup(bot: Bot):
     bot.add_cog(DictionaryCog(bot))
