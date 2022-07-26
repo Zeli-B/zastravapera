@@ -73,6 +73,13 @@ class DictionaryCog(commands.Cog):
     @app_commands.command(description='자소크어 단어를 검색합니다.')
     @app_commands.describe(query='검색할 단어')
     async def zasok(self, interaction: Interaction, query: str):
+        if any(query.startswith(prefix) for prefix in ('mò', 'mà', 'nò', 'nà', 'hò', 'hà', 'sò', 'sà')):
+            query = query[2:]
+        for character in 'àèìòù':
+            if character in query:
+                index = query.index(character)
+                query = query[:index]
+
         await handle_dictionary(interaction, databases['zasokese'], Embed(
             title=f'`{query}`의 검색 결과',
             description='자소크어 단어를 검색합니다.',
@@ -339,6 +346,5 @@ class DictionaryCog(commands.Cog):
     #             await sleep(0)
     #     await message.edit(content=f'{f"`{language}` " if language else ""} 데이터베이스를 다시 불러왔습니다.')
 
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(DictionaryCog(bot), guilds=[Object(x) for x in guild_ids])
+def setup(bot: Bot):
+    bot.add_cog(DictionaryCog(bot))
